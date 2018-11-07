@@ -20,24 +20,20 @@ class NNetNode:
         self.weights = []
         self.output = -1
         self.thresh = 0
-        self.doRandWeights = True
 
-    def _set_rnd_weights(self):
-        # Generate a random number, positive or negative, for each weight
-        self.weights = randn(len(self.inputs))
-        self.doRandWeights = False
+    def initialize_weights(self, num_weights):
+        self.weights = randn(num_weights+1)
     
     def set_inputs(self, passed_inputs):
-
         self.inputs = passed_inputs
-        np.append(self.inputs,-1) # Add a bias node
-      
-        if self.doRandWeights:
-            self._set_rnd_weights() # Set the weights for each input to random values
+        self.inputs = np.append(self.inputs,-1) # Add a bias node
 
     def _activation_fun(self, raw_output):
-        # A simple step function
-        if raw_output > self.thresh:
+        # Sigmoid function
+        sigmoid_val = 1/(1+np.e**(-1*raw_output))
+
+        # Return 1 if closer to 1
+        if sigmoid_val >= 0.5:
             return 1
         else:
             return 0
@@ -46,11 +42,8 @@ class NNetNode:
         # Calculate the summation of inputs * weights
         raw_output = 0
         for i in range(len(self.inputs)):
-#            print(type(self.inputs[i]))
-#            print(self.inputs)
-#            print(type(self.weights[i]))
-#            print(self.weights)
             raw_output += self.inputs[i] * self.weights[i]
+            
         self.output = self._activation_fun(raw_output)
         return self.output
    
@@ -59,36 +52,30 @@ class NNetClassifier:
         self.net = [] # A list of lists of nodes. Each list of nodes represents a layer
         self.hidden_layers = [] # A list of lists of nodes. Each list of nodes represents a layer.
         self.outputs = []
-        self.num_targets = 0
-        
-    def set_num_targets(self, num):
-        self.num_targets = num
     
     # Take a list of layer sizes. Each size in the list will create a layer consisting of 'size' nodes
+    # The hidden layers must be specified as well as the size of the output layer
     def configure_hidden_layers(self, layer_sizes): 
-        # Add each layer of nodes to the hidden_layers list
-        for size in layer_sizes:
+        
+        # Add each layer of nodes to the net
+        for layer_index in range(len(layer_sizes)):
             nodes = []
-            for i in size:
-                nodes.append(NNetNode())
-            self.hidden_layers.append(nodes)
-            
-    
-    def _create_net(self):
-        first_layer = []
-        # Create the first layer consisting of as many nodes as attributes
-        for attribute in range(self.num_targets):#data_targets[0]:
-            node = NNetNode()
-            first_layer.append(node)
-            self.net.append(first_layer)
-                    
-        # Append all the hidden layers onto the net
-        for layer in self.hidden_layers:
-            print("Hidden layer")
-            self.net.append(layer)
+            for i in range(layer_sizes[layer_index]):
+                # Create the node to be added to the layer
+                node = NNetNode()
+
+                # Skip the first layer since we don't know how many inputs yet
+                if layer_index-1 > -1:
+                    # Assign weights for each output from the previous layer
+                    node.initialize_weights(layer_sizes[layer_index-1])
+
+                # Add the node to the layer
+                nodes.append(node)
+                
+            # Add the layer to the net
+            self.net.append(nodes)     
     
     def _propogate_through_hidden_layers(self, layer_num):
-        # For some readon the length of net is 3... Figure this out
         # The last layer has been reached
         if layer_num == len(self.net):
             return
@@ -97,36 +84,40 @@ class NNetClassifier:
         
         # Get the outputs of the previous layer
         for node in self.net[layer_num - 1]:
-            prev_layer_outputs.append(node.get_output)
+            prev_layer_outputs.append(node.get_output())
+            
         
         # Use the outputs of the previous layer as the inputs to this layer
         for node in self.net[layer_num]:
             node.set_inputs(prev_layer_outputs)
         
         # Recursively propogate to the next layer
-        print("recurring")
         self._propogate_through_hidden_layers(layer_num + 1)
             
     # Train the NNet
     def fit(self, data_train, data_targets):
-        self._create_net()
         
         first_layer_num = 0
         
+        # Initialize the weights of the first layer since we know how many inputs now
+        for node in self.net[0]:
+            node.initialize_weights(len(data_train[0]))
+        
         # Send each row through the NNet
-        for row in data_train:
+        for row in data_train:            
             # Set the inputs of each node in the first layer
             for node in self.net[first_layer_num]:
-                # Setting the attributes in the nodes trains the net
                 node.set_inputs(row) 
-                
-#                self._propogate_through_hidden_layers(first_layer_num + 1)
+              
+            # Propogate the inputs and outputs through each layer
+            self._propogate_through_hidden_layers(first_layer_num + 1)
 #                _back_propogate() ??
                 
-    def _get_outputs(self):
+    def _get_final_outputs(self):
         outputs = []
+        
         # Get the outputs from the last layer of nodes in the net
-        for node in self.net[len(self.net)-1]:
+        for node in self.net[-1]:
             outputs.append(node.get_output())
         return outputs
     
@@ -139,10 +130,12 @@ class NNetClassifier:
             
             for node in self.net[0]:
                 node.set_inputs(attributes)
-                
-#            self._propogate_through_hidden_layers(1)
-            predictions.append(self._get_outputs())    
-        
+            
+            # Run the new ata through the network
+            self._propogate_through_hidden_layers(1)
+            
+            # Get the last layer's outputs
+            predictions.append(self._get_final_outputs())    
         return predictions
 
 def one_hot_encode_targets(targets):
@@ -171,8 +164,9 @@ def main():
     
     # Obtain a classifier. 
     classifier = NNetClassifier()
-    classifier.set_num_targets(3)
-
+    # Two hidden layers of 12 and 4 nodes, output layer of 3 nodes
+    classifier.configure_hidden_layers([12, 4, 3]) 
+    
     # Fit the data
     print("Training...")
     classifier.fit(data_train, one_hot_targets_train)
@@ -181,16 +175,10 @@ def main():
     print("Testing...")
     targets_predicted = classifier.predict(data_test)
     
-    print("Predictions:")
-#    print(targets_predicted)
-    
     # Calculate and display the accuracy
     print("Calculating the accuracy...")
     num_predictions = len(targets_predicted)    
     correct_count = 0
-
-#    print(targets_predicted)
-#    print(one_hot_targets_test)
 
     # Convert the pandas dataframe to a list of lists for accuracy compare
     targets_test_as_lists = one_hot_targets_test.values.tolist()
