@@ -22,13 +22,21 @@ class NNetNode:
         self.inputs = []
         self.weights = []
         self.old_weights = []
+        self.batch_weights = [] # List of lists of weights. Each list contains all weight calculations for the batch
         self.output = -1
         self.thresh = 0
         self.error = 0
 
     def initialize_weights(self, num_weights):
         self.weights = randn(num_weights+1)
+        for i in range(num_weights+1):
+            self.batch_weights.append([])
     
+    def reset_batch_weights(self):
+        self.batch_weights = []
+        for i in range(len(self.weights)):
+            self.batch_weights.append([])
+                
     def set_inputs(self, passed_inputs):
         self.inputs = passed_inputs
         self.inputs = np.append(self.inputs,-1) # Add a bias node
@@ -97,7 +105,6 @@ class NNetClassifier:
     def _set_output_error(self, node, target):
         activation = node.output
         node.error = activation*(1-activation)*(activation-target)
-        error_graph.append(node.error)
     
     # node: the node for which I'm seeking the error
     # node_index: the index of the node in its layer to be used for getting the right weight
@@ -118,9 +125,29 @@ class NNetClassifier:
             # Preserve the weights for subsequent weight updates to refer to the correct weight value
             node.old_weights = node.weights 
             
-            # Update the weights
+            # Update the weights sequentially, uncomment this and comment out the next two lines to use this
+            # Also, comment out the call to self._update_all_weights_to_batch_avg() at the end of .fit
             for i in range(len(node.weights)):
                 node.weights[i] = node.old_weights[i]-(self.learning_rate*node.error*node.output)
+     
+            # Uncomment this to use batch updates and uncomment the call to 
+            # self._update_all_weights_to_batch_avg() at the end of the .fit method
+            # Store the weights so an average of them can be calculated at the 
+            # end of the batch and do a batch update
+#            for i in range(len(node.weights)):
+#                node.batch_weights[i].append(node.weights[i]-(self.learning_rate*node.error*node.output))
+                
+    def _update_all_weights_to_batch_avg(self):
+        for layer in self.net:
+            for node in layer:
+                for i in range(len(node.batch_weights)):
+                    # Calculate the average of all the weight calculations for the batch
+                    avg_weight = np.mean(node.batch_weights[i])                  
+
+                    # Update the node's weights to the average weight
+                    node.weights[i] = avg_weight
+                node.reset_batch_weights()
+                
                 
         
     def _back_propogate(self, targets):
@@ -173,6 +200,10 @@ class NNetClassifier:
             self._back_propogate(targets_list)
             
             target_index += 1
+        
+        # Uncomment this and the portion in the update weights method for batch updates
+        # instead of sequential updates
+#        self._update_all_weights_to_batch_avg()
                 
     def _get_final_outputs(self):
         outputs = []
@@ -278,7 +309,7 @@ def main():
     classifier = NNetClassifier()
     
     # Two hidden layers of 20 nodes, output layer of 3 nodes
-    classifier.configure_hidden_layers([20, 20, 3]) # Iris Dataset
+    classifier.configure_hidden_layers([40, 40, 3]) # Iris Dataset
 #    classifier.configure_hidden_layers([40, 40, 2])  # Breast Cancer Dataset 
     
 
@@ -286,7 +317,7 @@ def main():
     do_epoch(classifier, data_train, data_test, one_hot_targets_train, one_hot_targets_test, 1, True)
 
     # Number of epochs to train the net
-    for i in range(0, 99):
+    for i in range(0, 100):
         epoch_cnt = i + 2 # The first epoch has already been done
         do_epoch(classifier, 
                  data_train, 
